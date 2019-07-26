@@ -16,6 +16,8 @@
 #include "stm32f10x.h"
 #include <stdio.h>
 
+//HOME
+
 /** @addtogroup STM32F10x_StdPeriph_Examples
   * @{
   */
