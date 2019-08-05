@@ -152,10 +152,12 @@ int main(void)
 
   uint32_t crc;    // Переменная для хранения CRC
   WordToByte word; // Объединение для расчета CRC
-
+  uint32_t i = 0;
   while (1)
   {
-    GPIO_ResetBits(GPIOC, LEDpin);
+    Delay_ms(10);
+    if(i > 5000)
+    {
     bufON[0] = 0xAA;
     bufON[1] = 0x63;
     bufON[2] = 0x73;
@@ -177,13 +179,16 @@ int main(void)
 
     c_form(NumbOfErr, ProtLength-1); // Будем исправлять 2 ошибки, в буфере длиной ProtLength - 1 байт (за вычетом стартового)
     c_code(&bufON[1]);     // Тепрь buf длиной 12 содержит 4 кодовых байт+8 информационных
-    Send_UART_Str(USART1, bufON);
     
-    
-    Delay_ms(10000000);
-    
-    GPIO_SetBits(GPIOC, LEDpin);
-    bufON[0] = 0xAA;
+    USART_SendData(USART1,255);
+    if(i == 10000)
+    {
+      GPIO_ResetBits(GPIOC, LEDpin);
+      Send_UART_Str(USART1, bufON);
+    }
+    }else
+    {
+      bufON[0] = 0xAA;
     bufON[1] = 0x77;
     bufON[2] = 0x63;
     bufON[3] = 0x63;
@@ -204,9 +209,18 @@ int main(void)
 
     c_form(NumbOfErr, ProtLength-1); // Будем исправлять 2 ошибки, в буфере длиной ProtLength - 1 байт (за вычетом стартового)
     c_code(&bufON[1]);     // Тепрь buf длиной 12 содержит 4 кодовых байт+8 информационных
-    Send_UART_Str(USART1, bufON);
 
-    Delay_ms(10000000);
+    
+    USART_SendData(USART1,255);
+    if(i == 5000)
+    {
+      GPIO_SetBits(GPIOC, LEDpin);
+      Send_UART_Str(USART1, bufON);
+    }
+    }
+    i++;
+    if(i > 10000)
+    {i = 0;}
     
   } // END_WHILE
 } // END_MAIN
