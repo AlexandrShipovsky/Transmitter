@@ -20,24 +20,9 @@
 #include "stm32f10x_dma.h"
 #include "stm32f10x_crc.h"
 #include <stdio.h>
-<<<<<<< HEAD
-
-//HOME
-
-/** @addtogroup STM32F10x_StdPeriph_Examples
-  * @{
-  */
-
-
-/** @addtogroup USART_Printf
-  * @{
-  */
-
-=======
 #include "protV/protV.h"
 // Пин LED
 #define LEDpin GPIO_Pin_13
->>>>>>> Первый вариант
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
