@@ -138,9 +138,9 @@ int main(void)
   protVstructure prot; // Структура протокола
   while (1)
   {
-    Delay_ms(10);
+    Delay_ms(100);
     USART_SendData(USART1, 255);
-    if (i == 10000)
+    if (i == 100000)
     {
       GPIO_ResetBits(GPIOC, LEDpin);
       // Заполняем структуру с данными
@@ -151,11 +151,11 @@ int main(void)
       SendPKG(&prot, buf);
     }
 
-    if (i == 5000)
+    if (i == 50000)
     {
       GPIO_SetBits(GPIOC, LEDpin);
       // Заполняем структуру с данными
-      prot.fst = RelayOFF;
+      prot.fst = RelayON_2;
       prot.snd = RelayON_1 | RelayON_2;
       prot.trd = RelayOFF;
       // Отправляем пакет
@@ -163,7 +163,7 @@ int main(void)
     }
 
     i++;
-    if (i > 10000)
+    if (i > 100000)
     {
       i = 0;
     }
