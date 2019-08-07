@@ -23,17 +23,20 @@
 #include "protV/protV.h"
 // Пин LED
 #define LEDpin GPIO_Pin_13
+
+#define RelayON_1 ((uint8_t)(0xFF << 4)) // Левые 4 бита = 1
+#define RelayON_2 ((uint8_t)(0xFF >> 4)) // Правые 4 бита = 1
+#define RelayOFF ((uint8_t)(0x00))
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
-protVstructure prot;  // Структура протокола
-uint8_t bufON[12];
-uint8_t buf[12];
+protVstructure prot; // Структура протокола
+uint8_t buf[12];     // Буфер для передачи
 /* Private function prototypes -----------------------------------------------*/
+void SendPKG(protVstructure *prot, uint8_t *buf);
 void Delay_ms(uint32_t ms);
-void DMA_ini(void);
 ErrorStatus RCC_ini(void);
 /* Private functions ---------------------------------------------------------*/
 // Программная задержка
@@ -79,27 +82,23 @@ ErrorStatus RCC_ini(void)
   };
   return HSEStartUpStatus;
 }
-// Настройка DMA
-void DMA_ini(void)
+// Процедура отправляет пакет в USART1
+void SendPKG(protVstructure *prot, uint8_t *buf)
 {
-  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
-
-  DMA_DeInit(DMA1_Channel5); // Сброс настроек DMA
-  DMA_InitTypeDef DMA_InitStruct;
-  DMA_InitStruct.DMA_PeripheralBaseAddr = (uint32_t) & (USART1->DR);   // Адрес данных UART
-  DMA_InitStruct.DMA_MemoryBaseAddr = (uint32_t)&buf[0];               // Адрес буфера памяти
-  DMA_InitStruct.DMA_DIR = DMA_DIR_PeripheralSRC;                      // Направление передачи от переферии в память
-  DMA_InitStruct.DMA_BufferSize = sizeof(buf);                         // Размер буфера
-  DMA_InitStruct.DMA_PeripheralInc = DMA_PeripheralInc_Disable;        // Отключить инкремент адреса данных переферии
-  DMA_InitStruct.DMA_MemoryInc = DMA_MemoryInc_Enable;                 // Включить инкремент адреса памяти
-  DMA_InitStruct.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte; // Байт данных для переферии
-  DMA_InitStruct.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;         // Байт данных для памяти
-  DMA_InitStruct.DMA_Mode = DMA_Mode_Circular;                         // Циклический режим работы
-  DMA_InitStruct.DMA_Priority = DMA_Priority_Medium;                   // Приоритет
-  DMA_InitStruct.DMA_M2M = DMA_M2M_Disable;                            // Отключить режим "из памяти в память"
-  DMA_Init(DMA1_Channel5, &DMA_InitStruct);
-
-  DMA_Cmd(DMA1_Channel5, ENABLE); // Включить DMA канал 5
+  WordToByte WordProt; // Объединение для расчета CRC
+                       // Объединяем 4 байта в слово
+  WordProt.byte[3] = StartByte;
+  WordProt.byte[2] = prot->fst;
+  WordProt.byte[1] = prot->snd;
+  WordProt.byte[0] = prot->trd;
+  // Вычисляем аппаратно контрольную сумму стартового байта и 3 информационных байт
+  CRC_ResetDR();
+  CRC_CalcCRC(WordProt.word);
+  prot->crc = CRC_GetCRC();
+  // Заполняем буфер и кодируем пакет
+  UnitBuf(prot, buf);
+  // Отправляет в UART
+  Send_UART_Str(USART1, buf);
 }
 /**
   * @brief  Main program
@@ -111,13 +110,13 @@ int main(void)
   ErrorStatus RCCStatus;
   RCCStatus = RCC_ini();
   UART_Init();
-  DMA_ini();
+
   RCC_AHBPeriphClockCmd(RCC_AHBPeriph_CRC, ENABLE);
 
   /*!< At this stage the microcontroller setting
      */
 
-  // Настройка LED
+  // Настройка LED (PC13)
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
   GPIO_InitTypeDef PIN_INIT;
   PIN_INIT.GPIO_Pin = LEDpin;
@@ -135,78 +134,40 @@ int main(void)
     //printf("I'm ready!\n\rRCC ERROR\n\r");
   }
 
-  uint32_t crc;    // Переменная для хранения CRC
-  WordToByte word; // Объединение для расчета CRC
   uint32_t i = 0;
+  protVstructure prot; // Структура протокола
   while (1)
   {
     Delay_ms(10);
-    if(i > 5000)
-    {
-    bufON[0] = 0xAA;
-    bufON[1] = 0x63;
-    bufON[2] = 0x73;
-    bufON[3] = 0x63;
-
-    word.byte[3] = bufON[0];
-    word.byte[2] = bufON[1];
-    word.byte[1] = bufON[2];
-    word.byte[0] = bufON[3];
-
-    CRC_ResetDR();
-    CRC_CalcCRC(word.word);
-    crc = CRC_GetCRC();
-    word.word = crc;
-    bufON[4] = word.byte[3];
-    bufON[5] = word.byte[2];
-    bufON[6] = word.byte[1];
-    bufON[7] = word.byte[0];
-
-    c_form(NumbOfErr, ProtLength-1); // Будем исправлять 2 ошибки, в буфере длиной ProtLength - 1 байт (за вычетом стартового)
-    c_code(&bufON[1]);     // Тепрь buf длиной 12 содержит 4 кодовых байт+8 информационных
-    
-    USART_SendData(USART1,255);
-    if(i == 10000)
+    USART_SendData(USART1, 255);
+    if (i == 10000)
     {
       GPIO_ResetBits(GPIOC, LEDpin);
-      Send_UART_Str(USART1, bufON);
+      // Заполняем структуру с данными
+      prot.fst = RelayON_1;
+      prot.snd = RelayON_1 | RelayON_2;
+      prot.trd = RelayOFF;
+      // Отправляем пакет
+      SendPKG(&prot, buf);
     }
-    }else
-    {
-      bufON[0] = 0xAA;
-    bufON[1] = 0x77;
-    bufON[2] = 0x63;
-    bufON[3] = 0x63;
 
-    word.byte[3] = bufON[0];
-    word.byte[2] = bufON[1];
-    word.byte[1] = bufON[2];
-    word.byte[0] = bufON[3];
-
-    CRC_ResetDR();
-    CRC_CalcCRC(word.word);
-    crc = CRC_GetCRC();
-    word.word = crc;
-    bufON[4] = word.byte[3];
-    bufON[5] = word.byte[2];
-    bufON[6] = word.byte[1];
-    bufON[7] = word.byte[0];
-
-    c_form(NumbOfErr, ProtLength-1); // Будем исправлять 2 ошибки, в буфере длиной ProtLength - 1 байт (за вычетом стартового)
-    c_code(&bufON[1]);     // Тепрь buf длиной 12 содержит 4 кодовых байт+8 информационных
-
-    
-    USART_SendData(USART1,255);
-    if(i == 5000)
+    if (i == 5000)
     {
       GPIO_SetBits(GPIOC, LEDpin);
-      Send_UART_Str(USART1, bufON);
+      // Заполняем структуру с данными
+      prot.fst = RelayOFF;
+      prot.snd = RelayON_1 | RelayON_2;
+      prot.trd = RelayOFF;
+      // Отправляем пакет
+      SendPKG(&prot, buf);
     }
-    }
+
     i++;
-    if(i > 10000)
-    {i = 0;}
-    
+    if (i > 10000)
+    {
+      i = 0;
+    }
+
   } // END_WHILE
 } // END_MAIN
 

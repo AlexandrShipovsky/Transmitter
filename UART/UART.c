@@ -39,13 +39,13 @@ void UART_Init(void)
 	USART_InitStructure.USART_StopBits = USART_StopBits_1;
 	USART_InitStructure.USART_Parity = USART_Parity_No;
 	USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-	USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+	USART_InitStructure.USART_Mode = USART_Mode_Tx;   //USART_Mode_Rx | USART_Mode_Tx;
 
 	USART_Init(USART1, &USART_InitStructure);
 
 	/* Enable USART1 */
 	USART_Cmd(USART1, ENABLE);
-	USART_DMACmd(USART1, USART_DMAReq_Rx, ENABLE);
+	// USART_DMACmd(USART1, USART_DMAReq_Rx, ENABLE);
 
 	while (USART_GetFlagStatus(USART1, USART_FLAG_TC) == RESET)
 	{
