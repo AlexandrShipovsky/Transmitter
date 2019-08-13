@@ -39,7 +39,7 @@ void UART_Init(void)
 	USART_InitStructure.USART_StopBits = USART_StopBits_1;
 	USART_InitStructure.USART_Parity = USART_Parity_No;
 	USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-	USART_InitStructure.USART_Mode = USART_Mode_Tx;   //USART_Mode_Rx | USART_Mode_Tx;
+	USART_InitStructure.USART_Mode = USART_Mode_Tx; //USART_Mode_Rx | USART_Mode_Tx;
 
 	USART_Init(USART1, &USART_InitStructure);
 
@@ -57,12 +57,12 @@ void UART_Init(void)
 /********************************************************************/
 /********************************************************************/
 /*  */
-void Send_UART_Str(USART_TypeDef *USARTx, uint8_t *string)
+void Send_UART_Str(USART_TypeDef *USARTx, uint8_t *string, uint8_t length)
 {
 	while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET)
 	{
 	};
-	while (*string)
+	for (uint8_t i = 0; i < length; i++)
 	{
 
 		USART_SendData(USARTx, *string);
@@ -71,5 +71,5 @@ void Send_UART_Str(USART_TypeDef *USARTx, uint8_t *string)
 		{
 		};
 
-	} //while
+	} //for
 } //send_Uart_str

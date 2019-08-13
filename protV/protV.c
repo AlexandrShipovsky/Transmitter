@@ -89,6 +89,7 @@ void UnitBuf(protVstructure *prot, uint8_t *buf)
   buf[i] = crc.byte[1];
   i++;
   buf[i] = crc.byte[0];
+  i++;
   // Кодируем информацию без стартового байта
   c_form(NumbOfErr, ProtLength - 1); // Будем исправлять 2 ошибки, в буфере длиной ProtLength - 1 байт (за вычетом стартового)
   c_code(&buf[1]);                   // Тепрь buf длиной 12 содержит 1 стартовый байт 4 кодовых байта 3 информационных и 4 байта CRC32

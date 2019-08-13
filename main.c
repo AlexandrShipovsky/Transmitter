@@ -23,17 +23,17 @@
 #include "protV/protV.h"
 // Пин LED
 #define LEDpin GPIO_Pin_13
-
-#define RelayON_1 ((uint8_t)(0xFF << 4)) // Левые 4 бита = 1
-#define RelayON_2 ((uint8_t)(0xFF >> 4)) // Правые 4 бита = 1
-#define RelayOFF ((uint8_t)(0x00))
+// Состояния реле
+#define RelayON_1 ((uint8_t)(0xFF << 6)) // 0x11000000
+#define RelayON_2 ((uint8_t)(0xFF >> 6)) // 0x00000011
+#define RelayOFF ((uint8_t)(0x18)) // 0x00011000
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 protVstructure prot; // Структура протокола
-uint8_t buf[12];     // Буфер для передачи
+uint8_t buf[13];     // Буфер для передачи
 /* Private function prototypes -----------------------------------------------*/
 void SendPKG(protVstructure *prot, uint8_t *buf);
 void Delay_ms(uint32_t ms);
@@ -98,7 +98,7 @@ void SendPKG(protVstructure *prot, uint8_t *buf)
   // Заполняем буфер и кодируем пакет
   UnitBuf(prot, buf);
   // Отправляет в UART
-  Send_UART_Str(USART1, buf);
+  Send_UART_Str(USART1, buf, ProtLength);
 }
 /**
   * @brief  Main program
@@ -138,32 +138,32 @@ int main(void)
   protVstructure prot; // Структура протокола
   while (1)
   {
-    Delay_ms(100);
+    Delay_ms(72000);
     USART_SendData(USART1, 255);
-    if (i == 100000)
+    if (i == 100)
     {
       GPIO_ResetBits(GPIOC, LEDpin);
       // Заполняем структуру с данными
       prot.fst = RelayON_1;
-      prot.snd = RelayON_1 | RelayON_2;
+      prot.snd = RelayOFF;;
       prot.trd = RelayOFF;
       // Отправляем пакет
       SendPKG(&prot, buf);
     }
 
-    if (i == 50000)
+    if (i == 50)
     {
       GPIO_SetBits(GPIOC, LEDpin);
       // Заполняем структуру с данными
-      prot.fst = RelayON_2;
-      prot.snd = RelayON_1 | RelayON_2;
+      prot.fst = RelayOFF;
+      prot.snd = RelayON_1;
       prot.trd = RelayOFF;
       // Отправляем пакет
       SendPKG(&prot, buf);
     }
 
     i++;
-    if (i > 100000)
+    if (i > 100)
     {
       i = 0;
     }
