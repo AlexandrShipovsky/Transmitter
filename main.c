@@ -26,30 +26,133 @@
 // Состояния реле
 #define RelayON_1 ((uint8_t)(0xFF << 6)) // 0x11000000
 #define RelayON_2 ((uint8_t)(0xFF >> 6)) // 0x00000011
-#define RelayOFF ((uint8_t)(0x18)) // 0x00011000
+#define RelayOFF ((uint8_t)(0x00))       // 0x00
+// Выводы кнопок
+#define but32 GPIO_Pin_0
+#define but31 GPIO_Pin_1
+#define but22 GPIO_Pin_2
+#define but21 GPIO_Pin_3
+#define but12 GPIO_Pin_4
+#define but11 GPIO_Pin_5
+// Порт кнопок
+#define ButPORT GPIOA
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
-protVstructure prot; // Структура протокола
-uint8_t buf[13];     // Буфер для передачи
+protVstructure prot;     // Структура протокола
+uint8_t buf[ProtLength]; // Буфер для передачи
 /* Private function prototypes -----------------------------------------------*/
 void SendPKG(protVstructure *prot, uint8_t *buf);
-void Delay_ms(uint32_t ms);
+void Delay_cpu(uint32_t tick);
+void Delay_ustim(uint16_t us);
+void Delay_mstim(uint16_t ms);
+void Delay_sectim(uint16_t sec);
 ErrorStatus RCC_ini(void);
+uint8_t ReadButtons(uint8_t button1, uint8_t button2);
+void Buttons_ini(void);
+void LED_ini(void);
+void TimDelay_ini(void);
 /* Private functions ---------------------------------------------------------*/
-// Программная задержка
-void Delay_ms(uint32_t ms)
+// Инициализация LED
+void LED_ini(void)
 {
-  for (uint32_t i = 0; i < ms; i++)
+  GPIO_InitTypeDef PIN_INIT;
+  PIN_INIT.GPIO_Pin = LEDpin;
+  PIN_INIT.GPIO_Speed = GPIO_Speed_10MHz;
+  PIN_INIT.GPIO_Mode = GPIO_Mode_Out_OD;
+  GPIO_Init(GPIOC, &PIN_INIT);
+}
+// Инициализация кнопок
+void Buttons_ini(void)
+{
+  GPIO_InitTypeDef GPIO_InitStructure;
+  GPIO_InitStructure.GPIO_Pin = but11 | but12 | but21 | but22 | but31 | but32;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_10MHz;
+  GPIO_Init(ButPORT, &GPIO_InitStructure);
+}
+// Инициализация таймера
+void TimDelay_ini(void)
+{
+  // TIMER4
+  TIM_TimeBaseInitTypeDef TIMER_InitStructure;
+
+  RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM4, ENABLE);
+
+  TIM_TimeBaseStructInit(&TIMER_InitStructure);
+  TIMER_InitStructure.TIM_CounterMode = TIM_CounterMode_Up;
+  TIMER_InitStructure.TIM_Prescaler = 72;
+  TIMER_InitStructure.TIM_Period = 0xFFFF;
+  TIM_TimeBaseInit(TIM4, &TIMER_InitStructure);
+  //TIM_ITConfig(TIM4, TIM_IT_Update, ENABLE);
+  TIM_Cmd(TIM4, ENABLE);
+}
+// Функция проверяет состояния двухкнопок и объединяет их в байт
+uint8_t ReadButtons(uint8_t button1, uint8_t button2)
+{
+  uint8_t byte = RelayOFF;
+  if (button1 == 0)
   {
+    Delay_sectim(2); // Проверяем еще раз через 2 секунды
+    if (button1 == 0)
+    {
+      byte |= RelayON_1;
+      GPIO_ResetBits(GPIOC, LEDpin);
+    }
+  }
+  if (button2 == 0)
+  {
+    Delay_sectim(2); // Проверяем еще раз через 2 секунды
+    if (button2 == 0)
+    {
+      byte |= RelayON_2;
+      GPIO_SetBits(GPIOC, LEDpin);
+    }
+  }
+  return byte;
+}
+// Программная задержка
+void Delay_cpu(uint32_t tick)
+{
+  for (uint32_t i = 0; i < tick; i++)
+  {
+  }
+}
+// Задержка на таймере tim4
+void Delay_ustim(uint16_t us)
+{
+  TIM_SetCounter(TIM4, 0);
+  while (us != TIM_GetCounter(TIM4))
+  {
+  }
+}
+void Delay_mstim(uint16_t ms)
+{
+  uint16_t i;
+  for (i = 0; i < ms; i++)
+  {
+    Delay_ustim(1000);
+  }
+}
+void Delay_sectim(uint16_t sec)
+{
+  uint16_t i;
+  for (i = 0; i < sec; i++)
+  {
+    Delay_mstim(1000);
   }
 }
 // Настройки тактирования
 ErrorStatus RCC_ini(void)
 {
-  RCC_DeInit();              //Сброс настроек
+
+  RCC_DeInit(); //Сброс настроек
+  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_CRC, ENABLE);
+
   RCC_HSEConfig(RCC_HSE_ON); //Включаем внешний кварцевый резонатор
   ErrorStatus HSEStartUpStatus;
   HSEStartUpStatus = RCC_WaitForHSEStartUp(); /* Ждем пока HSE будет готов */
@@ -82,7 +185,7 @@ ErrorStatus RCC_ini(void)
   };
   return HSEStartUpStatus;
 }
-// Процедура отправляет пакет в USART1
+// Процедура считает контрольную сумму полезных данных+стартовый байт отправляет пакет в USART1
 void SendPKG(protVstructure *prot, uint8_t *buf)
 {
   WordToByte WordProt; // Объединение для расчета CRC
@@ -97,7 +200,15 @@ void SendPKG(protVstructure *prot, uint8_t *buf)
   prot->crc = CRC_GetCRC();
   // Заполняем буфер и кодируем пакет
   UnitBuf(prot, buf);
+  for (uint8_t it = 0; it < 100; it++)
+  {
+    USART_SendData(USART1, 0xFF);
+    USART_SendData(USART1, 0xFF);
+    USART_SendData(USART1, 0xFF);
+  }
   // Отправляет в UART
+  Send_UART_Str(USART1, buf, ProtLength);
+  Send_UART_Str(USART1, buf, ProtLength);
   Send_UART_Str(USART1, buf, ProtLength);
 }
 /**
@@ -107,22 +218,14 @@ void SendPKG(protVstructure *prot, uint8_t *buf)
   */
 int main(void)
 {
+  // Инициализация
   ErrorStatus RCCStatus;
   RCCStatus = RCC_ini();
   UART_Init();
+  Buttons_ini();
+  LED_ini();
+  TimDelay_ini();
 
-  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_CRC, ENABLE);
-
-  /*!< At this stage the microcontroller setting
-     */
-
-  // Настройка LED (PC13)
-  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
-  GPIO_InitTypeDef PIN_INIT;
-  PIN_INIT.GPIO_Pin = LEDpin;
-  PIN_INIT.GPIO_Speed = GPIO_Speed_10MHz;
-  PIN_INIT.GPIO_Mode = GPIO_Mode_Out_OD;
-  GPIO_Init(GPIOC, &PIN_INIT);
   if (RCCStatus) // Проверка настроек тактирования
   {
     //Send_UART_Str(USART1, "I'm ready!\n\rRCC SUCCESS\n\r");
@@ -133,40 +236,16 @@ int main(void)
     //Send_UART_Str(USART1, "I'm ready!\n\rRCC ERROR\n\r");
     //printf("I'm ready!\n\rRCC ERROR\n\r");
   }
-
-  uint32_t i = 0;
-  protVstructure prot; // Структура протокола
   while (1)
   {
-    Delay_ms(72000);
-    USART_SendData(USART1, 255);
-    if (i == 100)
-    {
-      GPIO_ResetBits(GPIOC, LEDpin);
-      // Заполняем структуру с данными
-      prot.fst = RelayON_1;
-      prot.snd = RelayOFF;;
-      prot.trd = RelayOFF;
-      // Отправляем пакет
-      SendPKG(&prot, buf);
-    }
+    Delay_mstim(70);
 
-    if (i == 50)
-    {
-      GPIO_SetBits(GPIOC, LEDpin);
-      // Заполняем структуру с данными
-      prot.fst = RelayOFF;
-      prot.snd = RelayON_1;
-      prot.trd = RelayOFF;
-      // Отправляем пакет
-      SendPKG(&prot, buf);
-    }
-
-    i++;
-    if (i > 100)
-    {
-      i = 0;
-    }
+    // Заполняем структуру с данными
+    prot.fst = ReadButtons(GPIO_ReadInputDataBit(ButPORT, but11), GPIO_ReadInputDataBit(ButPORT, but12));
+    prot.snd = ReadButtons(GPIO_ReadInputDataBit(ButPORT, but21), GPIO_ReadInputDataBit(ButPORT, but22));
+    prot.trd = ReadButtons(GPIO_ReadInputDataBit(ButPORT, but31), GPIO_ReadInputDataBit(ButPORT, but32));
+    // Отправляем пакет
+    SendPKG(&prot, buf);
 
   } // END_WHILE
 } // END_MAIN
