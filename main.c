@@ -23,6 +23,14 @@
 #include "protV/protV.h"
 // Пин LED
 #define LEDpin GPIO_Pin_13
+
+#define LedRel11 GPIO_Pin_10
+#define LedRel12 GPIO_Pin_12
+#define LedRel21 GPIO_Pin_3
+#define LedRel22 GPIO_Pin_5
+#define LedRel31 GPIO_Pin_7
+#define LedRel32 GPIO_Pin_9
+#define LED_3mm GPIO_Pin_8
 // Состояния реле
 #define RelayON_1 ((uint8_t)(0xFF << 6)) // 0x11000000
 #define RelayON_2 ((uint8_t)(0xFF >> 6)) // 0x00000011
@@ -43,6 +51,13 @@
 /* Private variables ---------------------------------------------------------*/
 protVstructure prot;     // Структура протокола
 uint8_t buf[ProtLength]; // Буфер для передачи
+// Состояния реле
+_Bool Relay11 = 0,
+      Relay12 = 0,
+      Relay21 = 0,
+      Relay22 = 0,
+      Relay31 = 0,
+      Relay32 = 0;
 /* Private function prototypes -----------------------------------------------*/
 void SendPKG(protVstructure *prot, uint8_t *buf);
 void Delay_cpu(uint32_t tick);
@@ -50,7 +65,8 @@ void Delay_ustim(uint16_t us);
 void Delay_mstim(uint16_t ms);
 void Delay_sectim(uint16_t sec);
 ErrorStatus RCC_ini(void);
-uint8_t ReadButtons(uint8_t button1, uint8_t button2);
+uint8_t ReadRelayState(_Bool Relay1, _Bool Relay2);
+void ButtonToRelayState(uint16_t button, _Bool *Relay);
 void Buttons_ini(void);
 void LED_ini(void);
 void TimDelay_ini(void);
@@ -61,8 +77,26 @@ void LED_ini(void)
   GPIO_InitTypeDef PIN_INIT;
   PIN_INIT.GPIO_Pin = LEDpin;
   PIN_INIT.GPIO_Speed = GPIO_Speed_10MHz;
-  PIN_INIT.GPIO_Mode = GPIO_Mode_Out_OD;
+  PIN_INIT.GPIO_Mode = GPIO_Mode_Out_PP;
   GPIO_Init(GPIOC, &PIN_INIT);
+
+  PIN_INIT.GPIO_Pin = LedRel11 | LedRel12 | LED_3mm;
+  PIN_INIT.GPIO_Speed = GPIO_Speed_2MHz;
+  PIN_INIT.GPIO_Mode = GPIO_Mode_Out_PP;
+  GPIO_Init(GPIOA, &PIN_INIT);
+  GPIO_SetBits(GPIOA, LedRel11);
+  GPIO_SetBits(GPIOA, LedRel12);
+  
+
+  PIN_INIT.GPIO_Pin =  LedRel31 | LedRel32 | LedRel21 |LedRel22;
+  PIN_INIT.GPIO_Speed = GPIO_Speed_2MHz;
+  PIN_INIT.GPIO_Mode = GPIO_Mode_Out_PP;
+  GPIO_Init(GPIOB, &PIN_INIT);
+  
+  GPIO_SetBits(GPIOB, LedRel21);
+  GPIO_SetBits(GPIOB, LedRel22);
+  GPIO_SetBits(GPIOB, LedRel31);
+  GPIO_SetBits(GPIOB, LedRel32);
 }
 // Инициализация кнопок
 void Buttons_ini(void)
@@ -89,29 +123,32 @@ void TimDelay_ini(void)
   //TIM_ITConfig(TIM4, TIM_IT_Update, ENABLE);
   TIM_Cmd(TIM4, ENABLE);
 }
-// Функция проверяет состояния двухкнопок и объединяет их в байт
-uint8_t ReadButtons(uint8_t button1, uint8_t button2)
+// Функция проверяет состояния двух реле и объединяет их в байт
+uint8_t ReadRelayState(_Bool Relay1, _Bool Relay2)
 {
   uint8_t byte = RelayOFF;
-  if (button1 == 0)
+  if (Relay1 != 0)
   {
-    Delay_sectim(2); // Проверяем еще раз через 2 секунды
-    if (button1 == 0)
-    {
-      byte |= RelayON_1;
-      GPIO_ResetBits(GPIOC, LEDpin);
-    }
+    byte |= RelayON_1;
   }
-  if (button2 == 0)
+
+  if (Relay2 != 0)
   {
-    Delay_sectim(2); // Проверяем еще раз через 2 секунды
-    if (button2 == 0)
-    {
-      byte |= RelayON_2;
-      GPIO_SetBits(GPIOC, LEDpin);
-    }
+    byte |= RelayON_2;
   }
   return byte;
+}
+// Функция проверяет состояние кнопоки и изменяет состояние реле на противоположное
+void ButtonToRelayState(uint16_t button, _Bool *Relay)
+{
+  if (GPIO_ReadInputDataBit(ButPORT, button) == 0)
+  {
+    Delay_sectim(2);
+    if (GPIO_ReadInputDataBit(ButPORT, button) == 0)
+    {
+      *Relay = !*Relay;
+    }
+  }
 }
 // Программная задержка
 void Delay_cpu(uint32_t tick)
@@ -150,6 +187,7 @@ ErrorStatus RCC_ini(void)
 
   RCC_DeInit(); //Сброс настроек
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
   RCC_AHBPeriphClockCmd(RCC_AHBPeriph_CRC, ENABLE);
 
@@ -185,7 +223,7 @@ ErrorStatus RCC_ini(void)
   };
   return HSEStartUpStatus;
 }
-// Процедура считает контрольную сумму полезных данных+стартовый байт отправляет пакет в USART1
+// Процедура считает контрольную сумму полезных данных+стартовый байт и отправляет пакет в USART1
 void SendPKG(protVstructure *prot, uint8_t *buf)
 {
   WordToByte WordProt; // Объединение для расчета CRC
@@ -200,7 +238,7 @@ void SendPKG(protVstructure *prot, uint8_t *buf)
   prot->crc = CRC_GetCRC();
   // Заполняем буфер и кодируем пакет
   UnitBuf(prot, buf);
-  for (uint8_t it = 0; it < 100; it++)
+  for (uint8_t it = 0; it < 5; it++)
   {
     USART_SendData(USART1, 0xFF);
     USART_SendData(USART1, 0xFF);
@@ -210,6 +248,64 @@ void SendPKG(protVstructure *prot, uint8_t *buf)
   Send_UART_Str(USART1, buf, ProtLength);
   Send_UART_Str(USART1, buf, ProtLength);
   Send_UART_Str(USART1, buf, ProtLength);
+}
+void LedSwitch(void)
+{
+  if (Relay11)
+  {
+    GPIO_SetBits(GPIOC, LEDpin); ////////////////////////////////////
+    GPIO_ResetBits(GPIOA, LedRel11); 
+  }
+  else
+  {
+       GPIO_ResetBits(GPIOC, LEDpin); ////////////////////////////////////
+       GPIO_SetBits(GPIOA, LedRel11);
+  }
+  //////////////////////////////////////////////////////////////////////
+  if (Relay12)
+  {
+      GPIO_ResetBits(GPIOA, LedRel12); 
+  }
+  else
+  {
+       GPIO_SetBits(GPIOA, LedRel12);
+  }
+  /////////////////////////////////////////////////////////////////////////
+  if (Relay21)
+  {
+      GPIO_ResetBits(GPIOB, LedRel21); 
+  }
+  else
+  {
+       GPIO_SetBits(GPIOB, LedRel21);
+  }
+  ////////////////////////////////////////////////////////////////////
+  if (Relay22)
+  {
+      GPIO_ResetBits(GPIOB, LedRel22); 
+  }
+  else
+  {
+       GPIO_SetBits(GPIOB, LedRel22);
+  }
+  ////////////////////////////////////////////////////////////////////
+  if (Relay31)
+  {
+      GPIO_ResetBits(GPIOB, LedRel31); 
+  }
+  else
+  {
+       GPIO_SetBits(GPIOB, LedRel31);
+  }
+  ////////////////////////////////////////////////////////////////////
+  if (Relay32)
+  {
+      GPIO_ResetBits(GPIOB, LedRel32); 
+  }
+  else
+  {
+       GPIO_SetBits(GPIOB, LedRel32);
+  }
 }
 /**
   * @brief  Main program
@@ -236,14 +332,27 @@ int main(void)
     //Send_UART_Str(USART1, "I'm ready!\n\rRCC ERROR\n\r");
     //printf("I'm ready!\n\rRCC ERROR\n\r");
   }
+  // Индикатор включения
+  GPIO_ResetBits(GPIOA, LED_3mm);
+
   while (1)
   {
-    Delay_mstim(70);
+    //Delay_mstim(70);
+
+    // опрос всех кнопок и изменение состояния реле
+    ButtonToRelayState(but11, &Relay11);
+    ButtonToRelayState(but12, &Relay12);
+    ButtonToRelayState(but21, &Relay21);
+    ButtonToRelayState(but22, &Relay22);
+    ButtonToRelayState(but31, &Relay31);
+    ButtonToRelayState(but32, &Relay32);
 
     // Заполняем структуру с данными
-    prot.fst = ReadButtons(GPIO_ReadInputDataBit(ButPORT, but11), GPIO_ReadInputDataBit(ButPORT, but12));
-    prot.snd = ReadButtons(GPIO_ReadInputDataBit(ButPORT, but21), GPIO_ReadInputDataBit(ButPORT, but22));
-    prot.trd = ReadButtons(GPIO_ReadInputDataBit(ButPORT, but31), GPIO_ReadInputDataBit(ButPORT, but32));
+    prot.fst = ReadRelayState(Relay11, Relay12);
+    prot.snd = ReadRelayState(Relay21, Relay22);
+    prot.trd = ReadRelayState(Relay31, Relay32);
+    // Включаем соответствующие светодиоды
+    LedSwitch();
     // Отправляем пакет
     SendPKG(&prot, buf);
 
